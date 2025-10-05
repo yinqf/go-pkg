@@ -17,8 +17,8 @@ var (
 )
 
 const (
-	// defaultIssuer 用于在未配置环境变量 JWT_ISSUER 时填充 JWT 的 iss 字段。
-	defaultIssuer = "github.com/yinqf/go-pkg"
+	// issuerValue 为通用签发者标识，适用于所有依赖该公共包的服务。
+	issuerValue = "github.com/yinqf/go-pkg"
 )
 
 type contextKey string
@@ -52,7 +52,7 @@ func GenerateToken(subject string, ttl time.Duration) (string, error) {
 	claims := Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   subject,
-			Issuer:    issuer(),
+			Issuer:    issuerValue,
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 		},
@@ -118,13 +118,6 @@ func ClaimsFromContext(ctx context.Context) (*Claims, bool) {
 	}
 	claims, ok := ctx.Value(claimsContextKey).(*Claims)
 	return claims, ok
-}
-
-func issuer() string {
-	if value := os.Getenv("JWT_ISSUER"); value != "" {
-		return value
-	}
-	return defaultIssuer
 }
 
 func getSecret() ([]byte, error) {
