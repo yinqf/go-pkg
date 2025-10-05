@@ -87,5 +87,3 @@ func (h *Handler[T]) Delete(c *gin.Context) {
 
 	response.Success(c, gin.H{"id": id})
 }
-
-// Bind 将通用 CRUD 路由绑定到指定的路由组。
