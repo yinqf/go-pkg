@@ -1,0 +1,63 @@
+name: Auto Tag Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine next tag
+        id: tag
+        run: |
+          git fetch --tags --force
+
+          latest_tag=$(git tag --sort=-v:refname | head -n 1)
+          head_commit=$(git rev-parse HEAD)
+
+          if [ -z "$latest_tag" ]; then
+            next_tag="v0.0.1"
+          else
+            tagged_commit=$(git rev-list -n 1 "$latest_tag")
+            if [ "$tagged_commit" = "$head_commit" ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "HEAD already tagged with $latest_tag, skipping"
+              exit 0
+            fi
+
+            version=${latest_tag#v}
+            IFS='.' read -r major minor patch <<< "$version"
+
+            patch=$((patch + 1))
+            if [ "$patch" -ge 10 ]; then
+              patch=$((patch - 10))
+              minor=$((minor + 1))
+              if [ "$minor" -ge 10 ]; then
+                minor=$((minor - 10))
+                major=$((major + 1))
+              fi
+            fi
+
+            next_tag="v${major}.${minor}.${patch}"
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "next_tag=$next_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        if: steps.tag.outputs.skip == 'false'
+        env:
+          NEXT_TAG: ${{ steps.tag.outputs.next_tag }}
+        run: |
+          git tag "$NEXT_TAG"
+          git push origin "$NEXT_TAG"
