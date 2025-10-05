@@ -8,8 +8,9 @@ import (
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
-	"github.com/yinqf/go-pkg/logger"
 	"go.uber.org/zap"
+
+	"github.com/yinqf/go-pkg/logger"
 )
 
 var (

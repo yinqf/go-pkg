@@ -7,8 +7,9 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/yinqf/go-pkg/response"
 	"gorm.io/gorm"
+
+	"github.com/yinqf/go-pkg/response"
 )
 
 // ServiceContract 描述了泛型 CRUD 处理器所依赖的服务能力。
