@@ -3,6 +3,8 @@ package crud
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 
 	"gorm.io/gorm"
 )
@@ -21,11 +23,18 @@ func (s *Service[T]) SaveOrUpdate(ctx context.Context, entity *T) error {
 }
 
 func (s *Service[T]) DeleteByID(ctx context.Context, id string) error {
-	if id == "" {
+	if strings.TrimSpace(id) == "" {
 		return errors.New("id is required")
 	}
 
-	result := s.db.WithContext(ctx).Where("id = ?", id).Delete(new(T))
+	session := s.db.WithContext(ctx)
+	var result *gorm.DB
+
+	if numericID, err := strconv.ParseUint(id, 10, 64); err == nil {
+		result = session.Delete(new(T), numericID)
+	} else {
+		result = session.Where("id = ?", id).Delete(new(T))
+	}
 	if result.Error != nil {
 		return result.Error
 	}
