@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -16,7 +17,7 @@ import (
 type ServiceContract[T any] interface {
 	SaveOrUpdate(ctx context.Context, entity *T) error
 	DeleteByID(ctx context.Context, id string) error
-	Paginate(ctx context.Context, page, size int) ([]T, int64, error)
+	Paginate(ctx context.Context, page, size int, filters map[string][]string) ([]T, int64, error)
 }
 
 type Handler[T any] struct {
@@ -55,7 +56,24 @@ func (h *Handler[T]) List(c *gin.Context) {
 		return
 	}
 
-	items, total, svcErr := h.service.Paginate(c.Request.Context(), page, size)
+	rawQuery := c.Request.URL.Query()
+	filters := make(map[string][]string, len(rawQuery))
+	for key, values := range rawQuery {
+		if key == "page" || key == "size" {
+			continue
+		}
+		cleaned := make([]string, 0, len(values))
+		for _, v := range values {
+			if strings.TrimSpace(v) != "" {
+				cleaned = append(cleaned, v)
+			}
+		}
+		if len(cleaned) > 0 {
+			filters[key] = cleaned
+		}
+	}
+
+	items, total, svcErr := h.service.Paginate(c.Request.Context(), page, size, filters)
 	if svcErr != nil {
 		response.Error(c, svcErr.Error())
 		return

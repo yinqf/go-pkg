@@ -3,10 +3,12 @@ package crud
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Service 用于封装带主键实体的通用增删改查能力。
@@ -46,7 +48,7 @@ func (s *Service[T]) DeleteByID(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Service[T]) Paginate(ctx context.Context, page, size int) ([]T, int64, error) {
+func (s *Service[T]) Paginate(ctx context.Context, page, size int, filters map[string][]string) ([]T, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -63,14 +65,68 @@ func (s *Service[T]) Paginate(ctx context.Context, page, size int) ([]T, int64, 
 	)
 
 	session := s.db.WithContext(ctx)
+	model := new(T)
 
-	if err := session.Model(new(T)).Count(&total).Error; err != nil {
+	query := session.Model(model)
+
+	if len(filters) > 0 {
+		allowed := columnAllowlist(query, model)
+		for column, vals := range filters {
+			if len(vals) == 0 {
+				continue
+			}
+			value := vals[0]
+			if value == "" {
+				continue
+			}
+			if !allowed[column] {
+				continue
+			}
+			query = query.Where(clause.Eq{Column: clause.Column{Name: column}, Value: value})
+		}
+	}
+
+	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
-	if err := session.Model(new(T)).Order("id").Limit(size).Offset(offset).Find(&list).Error; err != nil {
+	if err := query.Order("id").Limit(size).Offset(offset).Find(&list).Error; err != nil {
 		return nil, 0, err
 	}
 
 	return list, total, nil
+}
+
+var columnNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+
+func columnAllowlist(tx *gorm.DB, model interface{}) map[string]bool {
+	columns := make(map[string]bool)
+	if tx == nil {
+		return columns
+	}
+	if err := tx.Statement.Parse(model); err == nil && tx.Statement.Schema != nil {
+		for _, field := range tx.Statement.Schema.Fields {
+			name := field.DBName
+			if name == "" {
+				name = field.Name
+			}
+			if columnNamePattern.MatchString(name) {
+				columns[name] = true
+			}
+		}
+		return columns
+	}
+
+	if tx.Migrator() == nil {
+		return columns
+	}
+
+	if cols, err := tx.Migrator().ColumnTypes(model); err == nil {
+		for _, col := range cols {
+			if name := col.Name(); columnNamePattern.MatchString(name) {
+				columns[name] = true
+			}
+		}
+	}
+	return columns
 }
