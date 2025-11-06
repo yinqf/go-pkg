@@ -3,6 +3,7 @@ package crud
 import (
 	"context"
 	"errors"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,7 +22,60 @@ func NewService[T any](db *gorm.DB) *Service[T] {
 }
 
 func (s *Service[T]) SaveOrUpdate(ctx context.Context, entity *T) error {
-	return s.db.WithContext(ctx).Save(entity).Error
+	if entity == nil {
+		return errors.New("entity is nil")
+	}
+
+	session := s.db.WithContext(ctx)
+	stmt := &gorm.Statement{DB: session, Context: ctx}
+	if err := stmt.Parse(entity); err != nil {
+		return err
+	}
+
+	schema := stmt.Schema
+	if schema == nil {
+		return errors.New("failed to parse schema")
+	}
+
+	primary := schema.PrioritizedPrimaryField
+	if primary == nil {
+		return errors.New("primary key is not defined")
+	}
+
+	value := reflect.ValueOf(entity)
+	if value.Kind() != reflect.Pointer || value.IsNil() {
+		return errors.New("entity must be a non-nil pointer")
+	}
+	elem := value.Elem()
+
+	_, zeroPK := primary.ValueOf(ctx, elem)
+	if zeroPK {
+		return session.Create(entity).Error
+	}
+
+	columns := make([]string, 0, len(schema.Fields))
+	for _, field := range schema.Fields {
+		if !field.Updatable || field.DBName == "" || field == primary {
+			continue
+		}
+
+		if field.AutoUpdateTime > 0 {
+			columns = append(columns, field.DBName)
+			continue
+		}
+
+		if _, zero := field.ValueOf(ctx, elem); zero {
+			continue
+		}
+
+		columns = append(columns, field.DBName)
+	}
+
+	if len(columns) == 0 {
+		return nil
+	}
+
+	return session.Model(entity).Select(columns).Updates(entity).Error
 }
 
 func (s *Service[T]) DeleteByID(ctx context.Context, id string) error {
