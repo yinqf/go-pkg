@@ -21,6 +21,12 @@ func NewService[T any](db *gorm.DB) *Service[T] {
 	return &Service[T]{db: db}
 }
 
+// OrderOption 描述单个排序条件。
+type OrderOption struct {
+	Column string
+	Desc   bool
+}
+
 func (s *Service[T]) SaveOrUpdate(ctx context.Context, entity *T) error {
 	if entity == nil {
 		return errors.New("entity is nil")
@@ -102,7 +108,7 @@ func (s *Service[T]) DeleteByID(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Service[T]) Paginate(ctx context.Context, page, size int, filters map[string][]string) ([]T, int64, error) {
+func (s *Service[T]) Paginate(ctx context.Context, page, size int, filters map[string][]string, orders []OrderOption) ([]T, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -122,9 +128,9 @@ func (s *Service[T]) Paginate(ctx context.Context, page, size int, filters map[s
 	model := new(T)
 
 	query := session.Model(model)
+	allowed := columnAllowlist(query, model)
 
 	if len(filters) > 0 {
-		allowed := columnAllowlist(query, model)
 		for column, vals := range filters {
 			if len(vals) == 0 {
 				continue
@@ -144,11 +150,41 @@ func (s *Service[T]) Paginate(ctx context.Context, page, size int, filters map[s
 		return nil, 0, err
 	}
 
-	if err := query.Order("id").Limit(size).Offset(offset).Find(&list).Error; err != nil {
+	orderBy := sanitizeOrders(orders, allowed)
+	if len(orderBy) == 0 {
+		query = query.Order("id")
+	} else {
+		for _, opt := range orderBy {
+			query = query.Order(clause.OrderByColumn{Column: clause.Column{Name: opt.Column}, Desc: opt.Desc})
+		}
+	}
+
+	if err := query.Limit(size).Offset(offset).Find(&list).Error; err != nil {
 		return nil, 0, err
 	}
 
 	return list, total, nil
+}
+
+func sanitizeOrders(orders []OrderOption, allowed map[string]bool) []OrderOption {
+	if len(orders) == 0 || len(allowed) == 0 {
+		return nil
+	}
+
+	result := make([]OrderOption, 0, len(orders))
+	seen := make(map[string]struct{}, len(orders))
+	for _, opt := range orders {
+		column := strings.TrimSpace(opt.Column)
+		if column == "" || !allowed[column] {
+			continue
+		}
+		if _, ok := seen[column]; ok {
+			continue
+		}
+		result = append(result, OrderOption{Column: column, Desc: opt.Desc})
+		seen[column] = struct{}{}
+	}
+	return result
 }
 
 var columnNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
