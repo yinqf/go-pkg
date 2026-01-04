@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
 	"github.com/yinqf/go-pkg/response"
+	"github.com/yinqf/go-pkg/utils"
 )
 
 // ServiceContract 描述了泛型 CRUD 处理器所依赖的服务能力。
@@ -44,20 +44,14 @@ func (h *Handler[T]) SaveOrUpdate(c *gin.Context) {
 }
 
 func (h *Handler[T]) List(c *gin.Context) {
-	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
-	if err != nil || page < 1 {
-		response.ErrorWithStatus(c, http.StatusBadRequest, "page 必须为正整数")
-		return
-	}
-
-	size, err := strconv.Atoi(c.DefaultQuery("size", "10"))
-	if err != nil || size <= 0 {
-		response.ErrorWithStatus(c, http.StatusBadRequest, "size 必须为正整数")
+	page, size, err := utils.ParsePageAndSize(c)
+	if err != nil {
+		response.ErrorWithStatus(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	rawQuery := c.Request.URL.Query()
-	orders := parseOrderOptions(rawQuery)
+	orders := utils.ParseOrderOptions(rawQuery)
 	filters := make(map[string][]string, len(rawQuery))
 	for key, values := range rawQuery {
 		if key == "page" || key == "size" || key == "order" || key == "sort" || key == "order_by" || key == "orderBy" {
@@ -106,65 +100,4 @@ func (h *Handler[T]) Delete(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{"id": id})
-}
-
-func parseOrderOptions(values map[string][]string) []OrderOption {
-	rawOrders := make([]string, 0, len(values))
-	for _, key := range []string{"order", "sort", "order_by", "orderBy"} {
-		if entries, ok := values[key]; ok {
-			rawOrders = append(rawOrders, entries...)
-		}
-	}
-
-	options := make([]OrderOption, 0, len(rawOrders))
-	for _, raw := range rawOrders {
-		opt, ok := parseOrderOption(raw)
-		if ok {
-			options = append(options, opt)
-		}
-	}
-	return options
-}
-
-func parseOrderOption(raw string) (OrderOption, bool) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return OrderOption{}, false
-	}
-
-	parts := strings.FieldsFunc(trimmed, func(r rune) bool {
-		return r == ' ' || r == ':' || r == ','
-	})
-
-	if len(parts) == 0 {
-		return OrderOption{}, false
-	}
-
-	column := strings.TrimSpace(parts[0])
-	if column == "" {
-		return OrderOption{}, false
-	}
-
-	desc := false
-	if strings.HasPrefix(column, "-") {
-		column = strings.TrimPrefix(column, "-")
-		desc = true
-	} else if strings.HasPrefix(column, "+") {
-		column = strings.TrimPrefix(column, "+")
-	}
-
-	if column == "" {
-		return OrderOption{}, false
-	}
-
-	if len(parts) > 1 {
-		switch strings.ToLower(strings.TrimSpace(parts[1])) {
-		case "desc", "descend", "descending":
-			desc = true
-		default:
-			desc = false
-		}
-	}
-
-	return OrderOption{Column: column, Desc: desc}, true
 }
