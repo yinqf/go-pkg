@@ -51,7 +51,7 @@ func (h *Handler[T]) List(c *gin.Context) {
 	}
 
 	rawQuery := c.Request.URL.Query()
-	orders := utils.ParseOrderOptions(rawQuery)
+	orders := ParseOrderOptions(rawQuery)
 	filters := make(map[string][]string, len(rawQuery))
 	for key, values := range rawQuery {
 		if key == "page" || key == "size" || key == "order" || key == "sort" || key == "order_by" || key == "orderBy" {

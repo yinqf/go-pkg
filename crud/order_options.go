@@ -1,13 +1,9 @@
-package utils
+package crud
 
-import (
-	"strings"
-
-	"github.com/yinqf/go-pkg/crud"
-)
+import "strings"
 
 // ParseOrderOptions 解析排序参数。
-func ParseOrderOptions(values map[string][]string) []crud.OrderOption {
+func ParseOrderOptions(values map[string][]string) []OrderOption {
 	rawOrders := make([]string, 0, len(values))
 	for _, key := range []string{"order", "sort", "order_by", "orderBy"} {
 		if entries, ok := values[key]; ok {
@@ -15,7 +11,7 @@ func ParseOrderOptions(values map[string][]string) []crud.OrderOption {
 		}
 	}
 
-	options := make([]crud.OrderOption, 0, len(rawOrders))
+	options := make([]OrderOption, 0, len(rawOrders))
 	for _, raw := range rawOrders {
 		opt, ok := parseOrderOption(raw)
 		if ok {
@@ -25,10 +21,10 @@ func ParseOrderOptions(values map[string][]string) []crud.OrderOption {
 	return options
 }
 
-func parseOrderOption(raw string) (crud.OrderOption, bool) {
+func parseOrderOption(raw string) (OrderOption, bool) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return crud.OrderOption{}, false
+		return OrderOption{}, false
 	}
 
 	parts := strings.FieldsFunc(trimmed, func(r rune) bool {
@@ -36,12 +32,12 @@ func parseOrderOption(raw string) (crud.OrderOption, bool) {
 	})
 
 	if len(parts) == 0 {
-		return crud.OrderOption{}, false
+		return OrderOption{}, false
 	}
 
 	column := strings.TrimSpace(parts[0])
 	if column == "" {
-		return crud.OrderOption{}, false
+		return OrderOption{}, false
 	}
 
 	desc := false
@@ -53,7 +49,7 @@ func parseOrderOption(raw string) (crud.OrderOption, bool) {
 	}
 
 	if column == "" {
-		return crud.OrderOption{}, false
+		return OrderOption{}, false
 	}
 
 	if len(parts) > 1 {
@@ -65,5 +61,5 @@ func parseOrderOption(raw string) (crud.OrderOption, bool) {
 		}
 	}
 
-	return crud.OrderOption{Column: column, Desc: desc}, true
+	return OrderOption{Column: column, Desc: desc}, true
 }
