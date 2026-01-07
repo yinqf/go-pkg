@@ -129,22 +129,7 @@ func (s *Service[T]) Paginate(ctx context.Context, page, size int, filters map[s
 
 	query := session.Model(model)
 	allowed := columnAllowlist(query, model)
-
-	if len(filters) > 0 {
-		for column, vals := range filters {
-			if len(vals) == 0 {
-				continue
-			}
-			value := vals[0]
-			if value == "" {
-				continue
-			}
-			if !allowed[column] {
-				continue
-			}
-			query = query.Where(clause.Eq{Column: clause.Column{Name: column}, Value: value})
-		}
-	}
+	query = ApplyFilters(query, filters, allowed)
 
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -164,6 +149,212 @@ func (s *Service[T]) Paginate(ctx context.Context, page, size int, filters map[s
 	}
 
 	return list, total, nil
+}
+
+type filterOp string
+
+const (
+	filterEq      filterOp = "eq"
+	filterNe      filterOp = "ne"
+	filterGt      filterOp = "gt"
+	filterGte     filterOp = "gte"
+	filterLt      filterOp = "lt"
+	filterLte     filterOp = "lte"
+	filterLike    filterOp = "like"
+	filterIn      filterOp = "in"
+	filterNotIn   filterOp = "nin"
+	filterBetween filterOp = "between"
+	filterIsNull  filterOp = "isnull"
+	filterNotNull filterOp = "notnull"
+)
+
+// ApplyFilters 根据通用筛选语法构建查询条件。
+func ApplyFilters(query *gorm.DB, filters map[string][]string, allowed map[string]bool) *gorm.DB {
+	if query == nil || len(filters) == 0 {
+		return query
+	}
+
+	for key, vals := range filters {
+		column, op := parseFilterKey(key)
+		if column == "" || !allowed[column] {
+			continue
+		}
+
+		values := normalizeFilterValues(vals)
+		if len(values) == 0 && op != filterIsNull && op != filterNotNull {
+			continue
+		}
+
+		columnExpr := clause.Column{Name: column}
+		switch op {
+		case filterEq:
+			list := splitFilterValues(values)
+			if len(list) > 1 {
+				query = query.Where(clause.IN{Column: columnExpr, Values: toInterfaceSlice(list)})
+			} else if len(list) == 1 {
+				query = query.Where(clause.Eq{Column: columnExpr, Value: list[0]})
+			}
+		case filterNe:
+			list := splitFilterValues(values)
+			if len(list) > 1 {
+				query = query.Not(clause.IN{Column: columnExpr, Values: toInterfaceSlice(list)})
+			} else if len(list) == 1 {
+				query = query.Where(clause.Neq{Column: columnExpr, Value: list[0]})
+			}
+		case filterGt:
+			query = query.Where(clause.Gt{Column: columnExpr, Value: values[0]})
+		case filterGte:
+			query = query.Where(clause.Gte{Column: columnExpr, Value: values[0]})
+		case filterLt:
+			query = query.Where(clause.Lt{Column: columnExpr, Value: values[0]})
+		case filterLte:
+			query = query.Where(clause.Lte{Column: columnExpr, Value: values[0]})
+		case filterLike:
+			value := values[0]
+			if value != "" && !strings.ContainsAny(value, "%_") {
+				value = "%" + value + "%"
+			}
+			if value != "" {
+				query = query.Where(clause.Expr{SQL: "? LIKE ?", Vars: []interface{}{columnExpr, value}})
+			}
+		case filterIn:
+			list := splitFilterValues(values)
+			if len(list) > 0 {
+				query = query.Where(clause.IN{Column: columnExpr, Values: toInterfaceSlice(list)})
+			}
+		case filterNotIn:
+			list := splitFilterValues(values)
+			if len(list) > 0 {
+				query = query.Not(clause.IN{Column: columnExpr, Values: toInterfaceSlice(list)})
+			}
+		case filterBetween:
+			list := splitFilterValues(values)
+			if len(list) >= 2 {
+				start := strings.TrimSpace(list[0])
+				end := strings.TrimSpace(list[1])
+				if start != "" && end != "" {
+					query = query.Where(clause.Gte{Column: columnExpr, Value: start}).
+						Where(clause.Lte{Column: columnExpr, Value: end})
+				}
+			}
+		case filterIsNull:
+			if isNull, ok := parseBoolValue(firstValue(values)); !ok || isNull {
+				query = query.Where(clause.Expr{SQL: "? IS NULL", Vars: []interface{}{columnExpr}})
+			} else {
+				query = query.Where(clause.Expr{SQL: "? IS NOT NULL", Vars: []interface{}{columnExpr}})
+			}
+		case filterNotNull:
+			query = query.Where(clause.Expr{SQL: "? IS NOT NULL", Vars: []interface{}{columnExpr}})
+		}
+	}
+
+	return query
+}
+
+func parseFilterKey(key string) (string, filterOp) {
+	trimmed := strings.TrimSpace(key)
+	if trimmed == "" {
+		return "", filterEq
+	}
+
+	if idx := strings.LastIndex(trimmed, "__"); idx > 0 && idx < len(trimmed)-2 {
+		column := trimmed[:idx]
+		rawOp := trimmed[idx+2:]
+		if op, ok := normalizeFilterOp(rawOp); ok {
+			return column, op
+		}
+	}
+
+	return trimmed, filterEq
+}
+
+func normalizeFilterOp(raw string) (filterOp, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "eq", "=":
+		return filterEq, true
+	case "ne", "neq", "!=", "<>":
+		return filterNe, true
+	case "gt", ">":
+		return filterGt, true
+	case "gte", "ge", ">=":
+		return filterGte, true
+	case "lt", "<":
+		return filterLt, true
+	case "lte", "le", "<=":
+		return filterLte, true
+	case "like", "contains", "contain":
+		return filterLike, true
+	case "in":
+		return filterIn, true
+	case "nin", "notin", "not_in":
+		return filterNotIn, true
+	case "between", "range":
+		return filterBetween, true
+	case "isnull", "null":
+		return filterIsNull, true
+	case "notnull", "not_null", "isnotnull":
+		return filterNotNull, true
+	default:
+		return "", false
+	}
+}
+
+func normalizeFilterValues(vals []string) []string {
+	if len(vals) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(vals))
+	for _, raw := range vals {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
+func splitFilterValues(vals []string) []string {
+	if len(vals) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(vals))
+	for _, raw := range vals {
+		for _, part := range strings.Split(raw, ",") {
+			trimmed := strings.TrimSpace(part)
+			if trimmed == "" {
+				continue
+			}
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+func toInterfaceSlice(vals []string) []interface{} {
+	result := make([]interface{}, 0, len(vals))
+	for _, val := range vals {
+		result = append(result, val)
+	}
+	return result
+}
+
+func parseBoolValue(raw string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "y", "on":
+		return true, true
+	case "0", "false", "no", "n", "off":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+func firstValue(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }
 
 func sanitizeOrders(orders []OrderOption, allowed map[string]bool) []OrderOption {

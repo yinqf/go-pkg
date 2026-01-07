@@ -21,6 +21,18 @@
 2. 修改后执行 `go test ./...` 保障兼容性。
 3. 在其他项目中通过 `go get github.com/yinqf/go-pkg` 引入。
 
+## CRUD 列表筛选
+
+`crud` 的 List 接口支持常用筛选操作，默认等值匹配，操作符通过 `__` 后缀区分：
+
+- `name=foo`：等值筛选（多个值或逗号分隔会转成 IN）。
+- `status__ne=0`：不等于。
+- `id__in=1,2,3` / `id__nin=1,2,3`：IN / NOT IN。
+- `age__gt=18`、`age__gte=18`、`age__lt=60`、`age__lte=60`：比较运算。
+- `name__like=foo`：模糊匹配（未包含 `%` 时自动包裹成 `%foo%`）。
+- `created_at__between=2024-01-01,2024-01-31`：区间筛选（等价于 >= + <=）。
+- `deleted_at__isnull=true` / `deleted_at__notnull=true`：空值/非空筛选。
+
 ## 环境变量
 
 - `MYSQL_DSN`：`database` 包初始化 GORM 所需的数据库连接串，例如 `user:pass@tcp(host:3306)/dbname`。
