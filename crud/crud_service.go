@@ -188,19 +188,9 @@ func ApplyFilters(query *gorm.DB, filters map[string][]string, allowed map[strin
 		columnExpr := clause.Column{Name: column}
 		switch op {
 		case filterEq:
-			list := splitFilterValues(values)
-			if len(list) > 1 {
-				query = query.Where(clause.IN{Column: columnExpr, Values: toInterfaceSlice(list)})
-			} else if len(list) == 1 {
-				query = query.Where(clause.Eq{Column: columnExpr, Value: list[0]})
-			}
+			query = query.Where(clause.Eq{Column: columnExpr, Value: values[0]})
 		case filterNe:
-			list := splitFilterValues(values)
-			if len(list) > 1 {
-				query = query.Not(clause.IN{Column: columnExpr, Values: toInterfaceSlice(list)})
-			} else if len(list) == 1 {
-				query = query.Where(clause.Neq{Column: columnExpr, Value: list[0]})
-			}
+			query = query.Where(clause.Neq{Column: columnExpr, Value: values[0]})
 		case filterGt:
 			query = query.Where(clause.Gt{Column: columnExpr, Value: values[0]})
 		case filterGte:
@@ -218,20 +208,20 @@ func ApplyFilters(query *gorm.DB, filters map[string][]string, allowed map[strin
 				query = query.Where(clause.Expr{SQL: "? LIKE ?", Vars: []interface{}{columnExpr, value}})
 			}
 		case filterIn:
-			list := splitFilterValues(values)
+			list := splitCommaValues(values)
 			if len(list) > 0 {
 				query = query.Where(clause.IN{Column: columnExpr, Values: toInterfaceSlice(list)})
 			}
 		case filterNotIn:
-			list := splitFilterValues(values)
+			list := splitCommaValues(values)
 			if len(list) > 0 {
 				query = query.Not(clause.IN{Column: columnExpr, Values: toInterfaceSlice(list)})
 			}
 		case filterBetween:
-			list := splitFilterValues(values)
-			if len(list) >= 2 {
-				start := strings.TrimSpace(list[0])
-				end := strings.TrimSpace(list[1])
+			parts := splitCommaValues(values)
+			if len(parts) >= 2 {
+				start := strings.TrimSpace(parts[0])
+				end := strings.TrimSpace(parts[1])
 				if start != "" && end != "" {
 					query = query.Where(clause.Gte{Column: columnExpr, Value: start}).
 						Where(clause.Lte{Column: columnExpr, Value: end})
@@ -315,6 +305,21 @@ func normalizeFilterValues(vals []string) []string {
 }
 
 func splitFilterValues(vals []string) []string {
+	if len(vals) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(vals))
+	for _, raw := range vals {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
+func splitCommaValues(vals []string) []string {
 	if len(vals) == 0 {
 		return nil
 	}
